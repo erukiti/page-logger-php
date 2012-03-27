@@ -14,20 +14,35 @@
 			$this->msg_index++;
 		}
 
-		private function wf_output($meta, $var) {
+		private function wf_group_start($meta = null, $is_collapsed = true, $label = null) {
+			if (!$meta)
+				$meta = array();
+			$meta['Type'] = 'GROUP_START';
+			$meta['Collapsed'] = $is_collapsed ? 'true' : 'false';
+			if ($label)
+				$meta['Label'] = $label;
+			$this->wf_raw($meta, null);
+		}
+
+		private function wf_group_end($meta = null) {
+			if (!$meta)
+				$meta = array();
+			$meta['Type'] = 'GROUP_END';
+			$this->wf_raw($meta, null);
+		}
+
+		private function wf_output($meta, $var, $label = null) {
+			if ($label)
+				$meta['Label'] = $label;
+
 			switch (gettype($var)) {
 			case 'array':
-				$meta_group_start = $meta;
-				$meta_group_start['Type'] = 'GROUP_START';
-				$meta_group_start['Collapsed'] = 'true';
-				$meta_group_end = $meta;
-				$meta_group_end['Type'] = 'GROUP_END';
-				$this->wf_raw($meta_group_start, null);
+				$label = "{$meta['Label']} (" . count($var) . ")";
+				$this->wf_group_start($meta, true, $label);
 				foreach ($var as $label => $var2) {
-					$meta['Label'] = "{$label}";
-					$this->wf_output($meta, $var2);
+					$this->wf_output(array_merge($meta, array('Label' => "{$label}")), $var2);
 				}
-				$this->wf_raw($meta_group_end, null);
+				$this->wf_group_end($meta);
 				break;
 			case 'boolean':
 			case 'integer':
@@ -40,35 +55,25 @@
 				if ($encoding == 'ASCII')
 					$this->wf_raw($meta, "\"{$var}\"");
 				elseif ($encoding == 'UTF-8')
-					$this->wf_raw($meta, "({$encoding}) \"{$var}\"");
+					$this->wf_raw($meta, "(utf-8) \"{$var}\"");
+				elseif ($encoding === false)
+					$this->wf_raw($meta, "(unknown) \"{$var}\"");
 				else
-					$this->wf_raw($meta, "({$encoding}) \"". mb_convert_encoding($var, 'utf-8') . '"');
+					$this->wf_raw($meta, "({$encoding}) \"". mb_convert_encoding($var, 'utf-8', $encoding) . '"');
 				
 				break;
 			case 'resource':
 				$this->wf_raw($meta, get_resource_type($var) . ":{$var}");
 				break;
 			case 'object':
-				$meta_group_start = $meta;
-				$meta_group_start['Type'] = 'GROUP_START';
-				$meta_group_start['Collapsed'] = 'true';
-				$meta_group_start['Label'] .= ' (object) ' . get_class($var);
+				$label = $meta['Label'] . ' (object) ' . get_class($var);
 				if (get_parent_class($var)) {
-					$meta_group_start['Label'] .= ' extends ' . get_parent_class($var);
+					$label .= ' extends ' . get_parent_class($var);
 				}
-				$meta_group_end = $meta;
-				$meta_group_end['Type'] = 'GROUP_END';
-				$this->wf_raw($meta_group_start, null);
-
-				$meta_method = $meta;
-				$meta_method['Label'] = 'method';
-				$this->wf_output($meta_method, get_class_methods($var));
-
-				$meta_vars = $meta;
-				$meta_vars['Label'] = 'vars';
-				$this->wf_output($meta_vars, get_object_vars($var));
-
-				$this->wf_raw($meta_group_end, null);
+				$this->wf_group_start($meta, true, $label);
+				$this->wf_output($meta, get_class_methods($var), 'method');
+				$this->wf_output($meta, get_object_vars($var), 'vars');
+				$this->wf_group_end($meta);
 				break;
 			}
 		}
@@ -90,17 +95,17 @@
 		function flush() {
 			if (isset($this->application) && $this->application) {
 				foreach ($this->application as $label => $var) {
-					$this->wf_output(array('Type' => 'LOG', 'Label' => "{$label}"), $var);
+					$this->wf_output(array('Type' => 'INFO', 'Label' => "{$label}"), $var);
 				}
 			}
 
 			// log_output
-			$this->wf_raw(array('Type' => 'GROUP_START', 'Label' => 'log'), null);
+			$this->wf_group_start(null, false, 'log');
 			foreach ($this->log_buffer as $log) {
 				$msg_meta = array('Type' => $this->get_type($log['level']), 'File' => $log['file'], 'Line' => $log['line'], 'Label' => "{$log['file']}:{$log['line']}");
 				$this->wf_output($msg_meta, $log['var']);
 			}
-			$this->wf_raw(array('Type' => 'GROUP_END', 'Label' => 'log'), null);
+			$this->wf_group_end();
 
 			$msg_index = $this->msg_index - 1;
 			header('X-Wf-Protocol-1: http://meta.wildfirehq.org/Protocol/JsonStream/0.2');
@@ -109,6 +114,7 @@
 			header("X-Wf-1-Index: {$msg_index}");
 		}
 	}
+
 	class PageLoggerOutput_Fluent extends PageLoggerOutputBuffered {
 		private function tag_name() {
 			switch ($this->level) {
