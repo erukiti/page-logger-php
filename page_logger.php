@@ -87,6 +87,7 @@
 			case 3:
 				return 'WARN';
 			case 4:
+			case 5:
 				return 'ERROR';
 			}
 			return 'LOG';
@@ -133,6 +134,9 @@
 			case 4:
 				$tag_level = PageLogger::NAME4;
 				break;
+			case 5:
+				$tag_level = PageLogger::NAME5;
+				break;
 			}
 			return "{$this->tag_name}.{$tag_level}";
 		}
@@ -147,11 +151,14 @@
 		}
 
 		function flush() {
-			if ($this->level <= 0) {
+			if (!parent::flush()) {
 				return;
 			}
 
 			$var = array('application' => $this->application, 'log' => $this->log_buffer);
+echo "<pre>";
+var_dump($var);
+echo "</pre>";
 
 			$socket = @stream_socket_client($this->uri, $errno, $errstr, 3, STREAM_CLIENT_CONNECT | STREAM_CLIENT_PERSISTENT);
 			if (!$socket) {
@@ -171,9 +178,14 @@
 			$this->log_buffer = array();
 			$this->application = null;
 			$this->level = 0;
+			$this->page_threshold = (isset($opt['page_threshold']) && $opt['page_threshold'] > 0) ? $opt['page_threshold'] : 0;
+			$this->line_threshold = (isset($opt['line_threshold']) && $opt['line_threshold'] > 0) ? $opt['line_threshold'] : 0;
 		}
 
 		function log($log) {
+			if ($log['level'] < $this->line_threshold)
+				return;
+
 			$this->log_buffer[] = $log;
 			if ($this->level < $log['level']) {
 				$this->level = $log['level'];
@@ -185,19 +197,22 @@
 		}
 
 		function flush() {
+			return $this->level >= $this->page_threshold;
 		}
 	}
 
 	class PageLogger {
 		Const DEBUG = 1;
 		Const INFO = 2;
-		Const ERROR = 3;
-		Const FATAL = 4;
+		Const WARN = 3;
+		Const ERROR = 4;
+		Const FATAL = 5;
 
 		Const NAME1 = "debug";
 		Const NAME2 = "info";
-		Const NAME3 = "error";
-		Const NAME4 = "fatal";
+		Const NAME3 = "warn";
+		Const NAME4 = "error";
+		Const NAME5 = "fatal";
 
 	// ------------------
 		private static $logger = array();
@@ -214,12 +229,6 @@
 
 			foreach ($this->output as $output) {
 				$output->log($log);
-			}
-		}
-
-		private function set_application($var) {
-			foreach ($this->output as $output) {
-				$output->set_application($var);
 			}
 		}
 
@@ -275,6 +284,30 @@
 			}
 		}
 
+		function error($message, $nest = 0) {
+			if (isset($this)) {
+				$this->log(self::ERROR, $message, $nest);
+			} else {
+				self::open()->log(self::ERROR, $message, $nest);
+			}
+		}
+
+		function warn($message, $nest = 0) {
+			if (isset($this)) {
+				$this->log(self::WARN, $message, $nest);
+			} else {
+				self::open()->log(self::WARN, $message, $nest);
+			}
+		}
+
+		function info($message, $nest = 0) {
+			if (isset($this)) {
+				$this->log(self::INFO, $message, $nest);
+			} else {
+				self::open()->log(self::INFO, $message, $nest);
+			}
+		}
+
 		function debug($message, $nest = 0) {
 			if (isset($this)) {
 				$this->log(self::DEBUG, $message, $nest);
@@ -283,11 +316,13 @@
 			}
 		}
 
-		function application($app) {
-			if (isset($this)) {
-				$this->set_application($app);
-			} else {
-				self::open()->set_application($app);
+		function set_application($var) {
+			if (!isset($this)) {
+				self::open()->set_application($var);
+				return;
+			}
+			foreach ($this->output as $output) {
+				$output->set_application($var);
 			}
 		}
 
