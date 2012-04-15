@@ -156,9 +156,6 @@
 			}
 
 			$var = array('application' => $this->application, 'log' => $this->log_buffer);
-echo "<pre>";
-var_dump($var);
-echo "</pre>";
 
 			$socket = @stream_socket_client($this->uri, $errno, $errstr, 3, STREAM_CLIENT_CONNECT | STREAM_CLIENT_PERSISTENT);
 			if (!$socket) {
